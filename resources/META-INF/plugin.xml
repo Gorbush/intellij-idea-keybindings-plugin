@@ -1,33 +1,33 @@
 <idea-plugin>
-  <id>ua.dipdev.keybindings</id>
-  <name>Intellij Idea Keybindings plugin</name>
-  <version>1.0</version>
-  <vendor email="aldanchenko@gmail.com" url="https://dipdev.studio/">DipDev Studio</vendor>
+    <id>ua.dipdev.keybindings</id>
+    <name>Intellij Idea Keybindings plugin</name>
+    <version>1.0</version>
+    <vendor email="aldanchenko@gmail.com" url="https://dipdev.studio/">DipDev Studio</vendor>
 
-  <description><![CDATA[
+    <description><![CDATA[
       Intellij IDEA plugin for configure keybindings.<br>
       <em>most HTML tags may be used</em>
     ]]></description>
 
-  <change-notes><![CDATA[
+    <change-notes><![CDATA[
     ]]>
-  </change-notes>
+    </change-notes>
 
-  <!-- please see http://www.jetbrains.org/intellij/sdk/docs/basics/getting_started/build_number_ranges.html for description -->
-  <idea-version since-build="173.0"/>
+    <!-- please see http://www.jetbrains.org/intellij/sdk/docs/basics/getting_started/build_number_ranges.html for description -->
+    <idea-version since-build="173.0"/>
 
-  <!-- please see http://www.jetbrains.org/intellij/sdk/docs/basics/getting_started/plugin_compatibility.html
-       on how to target different products -->
-  <!-- uncomment to enable plugin in all products
-  <depends>com.intellij.modules.lang</depends>
-  -->
+    <!-- please see http://www.jetbrains.org/intellij/sdk/docs/basics/getting_started/plugin_compatibility.html
+         on how to target different products -->
+    <!-- uncomment to enable plugin in all products
+    <depends>com.intellij.modules.lang</depends>
+    -->
 
-  <extensions defaultExtensionNs="com.intellij">
-    <!-- Add your extensions here -->
-  </extensions>
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Keybindings" icon="/ua/dipdev/keybindings/icons/toolWindow.png" anchor="right"
+                    factoryClass="ua.dipdev.keybindings.KeybindingsToolWindowFactory"/>
+    </extensions>
 
-  <actions>
-    <!-- Add your actions here -->
-  </actions>
+    <actions>
 
+    </actions>
 </idea-plugin>
