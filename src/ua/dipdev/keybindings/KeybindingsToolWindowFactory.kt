@@ -1,19 +1,19 @@
 package ua.dipdev.keybindings
 
 import com.intellij.execution.filters.TextConsoleBuilderFactory
-import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.ui.ConsoleView
 import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.icons.AllIcons
 import com.intellij.ide.ui.laf.IntelliJLaf
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.PathManager
-import com.intellij.openapi.fileTypes.StdFileTypes
+import com.intellij.openapi.fileEditor.FileEditor
+import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.ui.EditorTextField
-import com.intellij.ui.JavaReferenceEditorUtil
+import com.intellij.testFramework.LightVirtualFile
 import org.jetbrains.jps.model.java.impl.JavaSdkUtil
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageLocation
@@ -33,9 +33,7 @@ import org.jetbrains.kotlin.script.KotlinScriptDefinition
 
 import javax.swing.*
 import java.awt.*
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.OutputStream
 import java.net.URLClassLoader
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -46,14 +44,17 @@ import kotlin.jvm.internal.Reflection
  */
 class KeybindingsToolWindowFactory : ToolWindowFactory {
 
-    private var textEditor: EditorTextField? = null
+    private var fileEditor: FileEditor? = null
+
+    private var kotlinVirtualFile: LightVirtualFile? = null
 
     private var mainPanel: JPanel? = null
 
     private var consoleView: ConsoleView? = null
 
-    private var outputStream: ByteArrayOutputStream? = null
-
+    /**
+     * Create and initialize plugin UI content.
+     */
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val actionGroup = DefaultActionGroup()
 
@@ -62,72 +63,67 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
         val actionManager = ActionManager.getInstance()
         val actionToolbar = actionManager.createActionToolbar("Keybindings", actionGroup, true)
 
-        textEditor = EditorTextField(JavaReferenceEditorUtil
-                .createDocument("", project, false), project, StdFileTypes.JAVA)
-
-//        textEditor!!.setText("public class HelloWorld {\n" +
-//                "    public HelloWorld() {\n" +
-//                "        System.out.println(\"Hello, World\");\n" +
-//                "    }\n" +
-//                "}")
-
-        textEditor!!.setText("class Greeter() { \n" +
+        val kotlinHelloWorldSourceCodeStr = "class Greeter() { \n" +
                 "  fun greet() { \n" +
                 "    println(\"Hello, World\"); \n" +
                 "  } \n" +
-                "} \n" +
-                " \n" +
-                "fun main(args : Array<String>) { \n" +
-                "  Greeter().greet() \n" +
-                "}");
+                "}"
+
+        kotlinVirtualFile = LightVirtualFile("main.kt", kotlinHelloWorldSourceCodeStr)
+
+        val fileEditorProviderManager = FileEditorProviderManager.getInstance()
+
+        val providers = fileEditorProviderManager.getProviders(project, kotlinVirtualFile!!)
+
+        fileEditor = providers.get(0).createEditor(project, kotlinVirtualFile!!)
 
         val contentManager = toolWindow.contentManager
 
         mainPanel = JPanel(BorderLayout())
 
         mainPanel!!.add(actionToolbar.component, BorderLayout.NORTH)
-        mainPanel!!.add(textEditor, BorderLayout.CENTER)
+        mainPanel!!.add(fileEditor!!.component, BorderLayout.CENTER)
 
-        val content = contentManager.factory.createContent(mainPanel, null, false)
+        val textConsoleBuilderFactory = TextConsoleBuilderFactory.getInstance()
+
+        consoleView = textConsoleBuilderFactory.createBuilder(project).console
+
+        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT, mainPanel, consoleView?.component)
+        splitPane.dividerLocation = 600
+
+        val content = contentManager.factory.createContent(splitPane, null, false)
 
         contentManager.addContent(content)
     }
 
+    /**
+     * Run button action.
+     */
     private inner class RunAnAction internal constructor() : AnAction("Run", "", AllIcons.General.Run) {
 
-        private fun ideJdkClassesRoots(): List<File> =
-                JavaSdkUtil.getJdkClassesRoots(File(System.getProperty("java.home")), true)
-
-        private fun ideLibFiles(): List<File> {
-            val ideJarPath = PathManager.getJarPathForClass(IntelliJLaf::class.java) ?: throw IllegalStateException("Failed to find IDE lib folder.")
-
-            return File(ideJarPath).parentFile.listFiles().toList()
-        }
-
-        private fun jarFilesOf(dependentPlugins: List<String>): List<File> {
-//            val pluginDescriptors = pluginDescriptorsOf(dependentPlugins, onError = { it -> throw IllegalStateException("Failed to find jar for dependent plugin '$it'.") })
-//            return pluginDescriptors.map { it -> it.path }
-
-            return arrayListOf();
-        }
-
+        /**
+         * Action method.
+         */
         override fun actionPerformed(anActionEvent: AnActionEvent) {
-            val sourceCode = textEditor!!.text
+            consoleView?.clear();
+            consoleView?.print("Start compiling...\n", ConsoleViewContentType.SYSTEM_OUTPUT)
+
+            val documents = TextEditorProvider.getDocuments(fileEditor!!)
+
+            val sourceCode = documents?.get(0)!!.text
 
             val rootDirectory = File("hello_world_test")
-            val sourceFile = File(rootDirectory, "Greeter.kt")
+            val sourceFile = File(rootDirectory, "main.kt")
 
             sourceFile.parentFile.mkdirs()
 
             Files.write(sourceFile.toPath(), sourceCode.toByteArray(StandardCharsets.UTF_8))
 
-            println(sourceFile.absoluteFile)
-
             val compilerClasspath = ideJdkClassesRoots() + ideLibFiles()
 
-            val result = compile(sourceFile.absolutePath, compilerClasspath, rootDirectory)
+            val compilationResults = compile(sourceFile.absolutePath, compilerClasspath, rootDirectory)
 
-            println(result)
+            consoleView?.print("Compilation results $compilationResults\n", ConsoleViewContentType.SYSTEM_OUTPUT)
 
             val classLoader = URLClassLoader.newInstance(arrayOf(rootDirectory.toURI().toURL()))
 
@@ -137,146 +133,30 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
 
             val method = helloWorldClass.methods[0]
 
-            val methodResult = method.invoke(helloWorldClassInstance)
+            val methodResults = method.invoke(helloWorldClassInstance)
 
-            println(methodResult)
-
-            if (consoleView == null) {
-                val textConsoleBuilderFactory = TextConsoleBuilderFactory.getInstance()
-
-                val project = anActionEvent.project!!
-                val consoleView = textConsoleBuilderFactory.createBuilder(project).console
-
-                outputStream = ByteArrayOutputStream()
-
-                val processHandler = object : ProcessHandler() {
-                    override fun getProcessInput(): OutputStream? {
-                        return outputStream
-                    }
-
-                    override fun detachIsDefault(): Boolean {
-                        return false
-                    }
-
-                    override fun detachProcessImpl() {
-                    }
-
-                    override fun destroyProcessImpl() {
-                    }
-                }
-
-                consoleView.attachToProcess(processHandler)
-                processHandler.startNotify()
-
-                mainPanel!!.add(consoleView.component, BorderLayout.SOUTH)
-            }
-
-            consoleView?.print("Test me", ConsoleViewContentType.SYSTEM_OUTPUT)
-
-            outputStream?.write("Test it".toByteArray())
-            outputStream?.flush()
-
-            /*val javacCompilerTool = JavacCompilerTool()
-
-            val textConsoleBuilder = TextConsoleBuilderFactory.getInstance().createBuilder(project!!)
-            val consoleView = textConsoleBuilder.console
-            consoleView.print("Test", ConsoleViewContentType.SYSTEM_OUTPUT)
-
-            mainPanel!!.add(consoleView.component, BorderLayout.SOUTH)
-
-            try {
-                val compiler = javacCompilerTool.createCompiler()
-
-                val sourceCode = textEditor!!.text
-
-                val rootDirectory = File("hello_world_test")
-                val sourceFile = File(rootDirectory, "HelloWorld.java")
-                sourceFile.parentFile.mkdirs()
-                Files.write(sourceFile.toPath(), sourceCode.toByteArray(StandardCharsets.UTF_8))
-
-                compiler.run(null, null, null, sourceFile.path)
-
-                consoleView.print("Compiled.", ConsoleViewContentType.SYSTEM_OUTPUT)
-
-                val classLoader = URLClassLoader.newInstance(arrayOf(rootDirectory.toURI().toURL()))
-
-                val helloWorldClass = Class.forName("HelloWorld", true, classLoader)
-
-                val helloWorldClassInstance = helloWorldClass.newInstance()
-
-                val method = helloWorldClass.methods[0]
-
-                val methodResult = method.invoke(helloWorldClassInstance)
-
-                consoleView.print(methodResult.toString(), ConsoleViewContentType.SYSTEM_OUTPUT)
-
-                //                MessageView messageView = MessageView.SERVICE.getInstance(project);
-                //
-                //                Content content = ContentFactory.SERVICE.getInstance().createContent(
-                //                        consoleView.getComponent(), "Test title", true);
-                //                messageView.getContentManager().addContent(content);
-                //                messageView.getContentManager().setSelectedContent(content);
-            } catch (e: CannotCreateJavaCompilerException) {
-                consoleView.print(e.message!!, ConsoleViewContentType.ERROR_OUTPUT)
-            } catch (e: IOException) {
-                consoleView.print(e.message!!, ConsoleViewContentType.ERROR_OUTPUT)
-            } catch (e: InstantiationException) {
-                consoleView.print(e.message!!, ConsoleViewContentType.ERROR_OUTPUT)
-            } catch (e: ClassNotFoundException) {
-                consoleView.print(e.message!!, ConsoleViewContentType.ERROR_OUTPUT)
-            } catch (e: IllegalAccessException) {
-                consoleView.print(e.message!!, ConsoleViewContentType.ERROR_OUTPUT)
-            } catch (e: InvocationTargetException) {
-                consoleView.print(e.message!!, ConsoleViewContentType.ERROR_OUTPUT)
-            }*/
-
-            /*CompilerManagerImpl compilerManager = (CompilerManagerImpl) CompilerManager.getInstance(project);
-            compilerManager.compileJavaCode()*/
-
-
-            /*File projectDirectory = new File("HelloWorld");
-
-            if (!projectDirectory.exists()) {
-                projectDirectory.mkdirs();
-            }
-
-            try (PrintWriter printWriter = new PrintWriter("HelloWorld.java")) {
-                printWriter.println(textEditor.getText());
-            } catch (FileNotFoundException e) {
-                e.printStackTrace();
-            }
-
-            RunManager runManager = RunManager.getInstance(anActionEvent.getProject());
-            ApplicationConfiguration applicationConfiguration =
-                    new ApplicationConfiguration("HelloWorld", anActionEvent.getProject(), ApplicationConfigurationType.getInstance());
-
-            applicationConfiguration.MAIN_CLASS_NAME = "HelloWorld";
-            applicationConfiguration.WORKING_DIRECTORY = projectDirectory.getAbsolutePath();
-
-            //applicationConfiguration.setModule(ModuleManager.getInstance(anActionEvent.getProject()).findModuleByName("myplugin"));
-
-            RunnerAndConfigurationSettings runManagerConfiguration = runManager.createConfiguration(applicationConfiguration, applicationConfiguration.getFactory());
-            runManager.addConfiguration(runManagerConfiguration, false);
-
-            Executor runExecutorInstance = DefaultRunExecutor.getRunExecutorInstance();
-            ProgramRunnerUtil.executeConfiguration(anActionEvent.getProject(), runManagerConfiguration, runExecutorInstance);*/
-
-
-            //            TextConsoleBuilder textConsoleBuilder = TextConsoleBuilderFactory.getInstance().createBuilder(project);
-            //            ConsoleView consoleView = textConsoleBuilder.getConsole();
-            //            consoleView.print("Test", ConsoleViewContentType.SYSTEM_OUTPUT);
-
-
-            //            ConfigurationContext configurationContext = ConfigurationContext.getFromContext(anActionEvent.getDataContext());
-            //
-            //            RunnerAndConfigurationSettings runnerAndConfigurationSettings = configurationContext.findExisting();
-            //
-            //            if (runnerAndConfigurationSettings != null) {
-            //                ExecutionUtil.runConfiguration(runnerAndConfigurationSettings, DefaultRunExecutor.getRunExecutorInstance());
-            //            }
+            consoleView?.print("Method results $methodResults\n", ConsoleViewContentType.SYSTEM_OUTPUT)
         }
     }
 
+    /**
+     * Return JDK class files.
+     */
+    private fun ideJdkClassesRoots(): List<File> =
+            JavaSdkUtil.getJdkClassesRoots(File(System.getProperty("java.home")), true)
+
+    /**
+     * Return IDE lib files
+     */
+    private fun ideLibFiles(): List<File> {
+        val ideJarPath = PathManager.getJarPathForClass(IntelliJLaf::class.java) ?: throw IllegalStateException("Failed to find IDE lib folder.")
+
+        return File(ideJarPath).parentFile.listFiles().toList()
+    }
+
+    /**
+     * Compile source Kotlin file.
+     */
     @Suppress("unused") // Used via reflection.
     fun compile(sourceRoot: String, classpath: List<File>, compilerOutput: File): List<String> {
         val rootDisposable = Disposer.newDisposable()
@@ -313,7 +193,9 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
         override fun hasErrors() = errors.isNotEmpty()
     }
 
-
+    /**
+     * Create compile configuration for Kotlin compiler.
+     */
     private fun createCompilerConfiguration(
             sourceRoot: String,
             classpath: List<File>,
