@@ -13,6 +13,9 @@
     ]]>
     </change-notes>
 
+    <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="kotlin-plugin-integration.xml">org.jetbrains.kotlin</depends>
+
     <!-- please see http://www.jetbrains.org/intellij/sdk/docs/basics/getting_started/build_number_ranges.html for description -->
     <idea-version since-build="173.0"/>
 
