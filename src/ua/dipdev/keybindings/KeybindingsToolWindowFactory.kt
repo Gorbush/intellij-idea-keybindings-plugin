@@ -1,6 +1,7 @@
 package ua.dipdev.keybindings
 
 import com.intellij.execution.filters.TextConsoleBuilderFactory
+import com.intellij.execution.impl.ConsoleViewImpl
 import com.intellij.execution.ui.ConsoleView
 import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.icons.AllIcons
@@ -88,8 +89,26 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
 
         consoleView = textConsoleBuilderFactory.createBuilder(project).console
 
-        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT, mainPanel, consoleView?.component)
+        val consoleViewComponent = consoleView?.component
+
+        val testActionGroup = DefaultActionGroup()
+
+        val createConsoleActions = consoleView?.createConsoleActions()!!
+
+        for (anAction in createConsoleActions) {
+            testActionGroup.add(anAction)
+        }
+
+        val toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, testActionGroup, false);
+        toolbar.setTargetComponent(consoleViewComponent);
+
+        val ui = JPanel(BorderLayout())
+        ui.add(consoleViewComponent, BorderLayout.CENTER);
+        ui.add(toolbar.getComponent(), BorderLayout.WEST);
+
+        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT, mainPanel, ui)
         splitPane.dividerLocation = 600
+        splitPane.dividerSize = 2
 
         val content = contentManager.factory.createContent(splitPane, null, false)
 
