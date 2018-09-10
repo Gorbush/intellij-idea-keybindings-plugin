@@ -1,17 +1,23 @@
 package ua.dipdev.keybindings
 
 import com.intellij.execution.filters.TextConsoleBuilderFactory
-import com.intellij.execution.impl.ConsoleViewImpl
 import com.intellij.execution.ui.ConsoleView
 import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.icons.AllIcons
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.ide.ui.laf.IntelliJLaf
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationType
+import com.intellij.notification.Notifications
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.PathManager
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager
 import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.testFramework.LightVirtualFile
@@ -38,6 +44,7 @@ import java.io.File
 import java.net.URLClassLoader
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.Paths
 import kotlin.jvm.internal.Reflection
 
 /**
@@ -53,24 +60,43 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
 
     private var consoleView: ConsoleView? = null
 
+    private var actionGroup: DefaultActionGroup? = null
+
+    private var keybindingsAction: AnAction? = null
+
     /**
      * Create and initialize plugin UI content.
      */
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val actionGroup = DefaultActionGroup()
+        actionGroup = DefaultActionGroup()
 
-        actionGroup.add(RunAnAction())
+        actionGroup!!.add(EditAction())
+        actionGroup!!.add(ReloadAction())
+        actionGroup!!.add(RunAction())
 
         val actionManager = ActionManager.getInstance()
-        val actionToolbar = actionManager.createActionToolbar("Keybindings", actionGroup, true)
+        val actionToolbar = actionManager.createActionToolbar("Keybindings", actionGroup!!, true)
 
-        val kotlinHelloWorldSourceCodeStr = "class Greeter() { \n" +
-                "  fun greet() { \n" +
-                "    println(\"Hello, World\"); \n" +
-                "  } \n" +
-                "}"
+        val rootDirectory = File("keybindings_plugin")
+        val sourceFile = File(rootDirectory, "main.kt")
 
-        kotlinVirtualFile = LightVirtualFile("main.kt", kotlinHelloWorldSourceCodeStr)
+        val kotlinActionClassSourceCodeStr: String
+
+        kotlinActionClassSourceCodeStr = if (sourceFile.exists()) {
+            String(Files.readAllBytes(Paths.get(sourceFile.absolutePath)))
+        } else {
+            "import com.intellij.icons.AllIcons\n" +
+                    "import com.intellij.openapi.actionSystem.*\n" +
+                    "import com.intellij.openapi.ui.Messages\n" +
+                    "\n" +
+                    "class KeybindingsAction internal constructor() : AnAction(\"Keybindings\", \"Replace/configure keybindings\", AllIcons.General.KeyboardShortcut) {\n" +
+                    "    override fun actionPerformed(actionEvent: AnActionEvent) {\n" +
+                    "        Messages.showMessageDialog(actionEvent!!.project, \"Hello, World!\", \"Message\", Messages.getInformationIcon())\n" +
+                    "    }\n" +
+                    "}"
+        }
+
+        kotlinVirtualFile = LightVirtualFile("main.kt", kotlinActionClassSourceCodeStr)
 
         val fileEditorProviderManager = FileEditorProviderManager.getInstance()
 
@@ -78,12 +104,16 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
 
         fileEditor = providers.get(0).createEditor(project, kotlinVirtualFile!!)
 
+        val fileEditorComponent = fileEditor!!.component
+
+        fileEditorComponent.isVisible = false
+
         val contentManager = toolWindow.contentManager
 
         mainPanel = JPanel(BorderLayout())
 
         mainPanel!!.add(actionToolbar.component, BorderLayout.NORTH)
-        mainPanel!!.add(fileEditor!!.component, BorderLayout.CENTER)
+        mainPanel!!.add(fileEditorComponent, BorderLayout.CENTER)
 
         val textConsoleBuilderFactory = TextConsoleBuilderFactory.getInstance()
 
@@ -102,11 +132,11 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
         val toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, testActionGroup, false);
         toolbar.setTargetComponent(consoleViewComponent);
 
-        val ui = JPanel(BorderLayout())
-        ui.add(consoleViewComponent, BorderLayout.CENTER);
-        ui.add(toolbar.getComponent(), BorderLayout.WEST);
+        val consolePanel = JPanel(BorderLayout())
+        consolePanel.add(consoleViewComponent, BorderLayout.CENTER);
+        consolePanel.add(toolbar.component, BorderLayout.WEST);
 
-        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT, mainPanel, ui)
+        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT, mainPanel, consolePanel)
         splitPane.dividerLocation = 600
         splitPane.dividerSize = 2
 
@@ -116,22 +146,28 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
     }
 
     /**
-     * Run button action.
+     * Open main.kt for edit.
      */
-    private inner class RunAnAction internal constructor() : AnAction("Run", "", AllIcons.General.Run) {
+    private inner class EditAction internal constructor() : AnAction("Edit", "", IconLoader.getIcon("/edit-icon.png")) {
+        override fun actionPerformed(p0: AnActionEvent?) {
+            val fileEditorComponent = fileEditor!!.component
 
-        /**
-         * Action method.
-         */
-        override fun actionPerformed(anActionEvent: AnActionEvent) {
-            consoleView?.clear();
-            consoleView?.print("Start compiling...\n", ConsoleViewContentType.SYSTEM_OUTPUT)
+            fileEditorComponent.isVisible = !fileEditorComponent.isVisible
+        }
+    }
 
+    /**
+     * Recompiles main.kt.
+     */
+    private inner class ReloadAction internal constructor() : AnAction("Reload", "", IconLoader.getIcon("/reload-icon.png")) {
+        override fun actionPerformed(actionEvent: AnActionEvent?) {
             val documents = TextEditorProvider.getDocuments(fileEditor!!)
 
-            val sourceCode = documents?.get(0)!!.text
+            val document = documents?.get(0)!!
 
-            val rootDirectory = File("hello_world_test")
+            val sourceCode = document.text
+
+            val rootDirectory = File("keybindings_plugin")
             val sourceFile = File(rootDirectory, "main.kt")
 
             sourceFile.parentFile.mkdirs()
@@ -142,19 +178,63 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
 
             val compilationResults = compile(sourceFile.absolutePath, compilerClasspath, rootDirectory)
 
-            consoleView?.print("Compilation results $compilationResults\n", ConsoleViewContentType.SYSTEM_OUTPUT)
+            val messageTitle = "Compilation"
 
-            val classLoader = URLClassLoader.newInstance(arrayOf(rootDirectory.toURI().toURL()))
+            if (compilationResults.isEmpty()) {
+                Notifications.Bus.notify(Notification(Notifications.SYSTEM_MESSAGES_GROUP_ID, messageTitle, "Reload completed successfully.", NotificationType.INFORMATION))
 
-            val helloWorldClass = Class.forName("Greeter", true, classLoader)
+                Messages.showMessageDialog(actionEvent!!.project, "Reload completed successfully.",
+                        messageTitle, Messages.getInformationIcon())
+            } else {
+                Notifications.Bus.notify(Notification(Notifications.SYSTEM_MESSAGES_GROUP_ID, messageTitle, "Error: $compilationResults.", NotificationType.ERROR))
 
-            val helloWorldClassInstance = helloWorldClass.newInstance()
+                Messages.showMessageDialog(actionEvent!!.project, "Error: $compilationResults.",
+                        messageTitle, Messages.getErrorIcon())
+            }
+        }
+    }
 
-            val method = helloWorldClass.methods[0]
+    /**
+     * Run button action.
+     */
+    private inner class RunAction internal constructor() : AnAction("Run", "", AllIcons.General.Run) {
 
-            val methodResults = method.invoke(helloWorldClassInstance)
+        /**
+         * Action method.
+         */
+        override fun actionPerformed(actionEvent: AnActionEvent) {
+            try {
+                val rootDirectory = File("keybindings_plugin")
 
-            consoleView?.print("Method results $methodResults\n", ConsoleViewContentType.SYSTEM_OUTPUT)
+                val pluginClassLoader = PluginManager.getPlugin(PluginId.getId("ua.dipdev.keybindings"))?.pluginClassLoader
+
+                val classLoader = URLClassLoader.newInstance(arrayOf(rootDirectory.toURI().toURL()), pluginClassLoader)
+
+                val actionClass = Class.forName("KeybindingsAction", true, classLoader)
+
+                val actionClassInstance = actionClass.newInstance()
+
+                val actionManager = ActionManager.getInstance()
+
+                if (keybindingsAction != null) {
+                    actionGroup!!.remove(keybindingsAction)
+
+                    actionManager.unregisterAction("KeybindingsPluginAction")
+                }
+
+                keybindingsAction = actionClassInstance as AnAction
+
+                actionGroup!!.add(keybindingsAction!!)
+
+                actionManager.registerAction("KeybindingsPluginAction", keybindingsAction!!)
+            } catch (exception: Exception) {
+                consoleView?.print("Error: ${exception.message}", ConsoleViewContentType.ERROR_OUTPUT)
+
+                Notifications.Bus.notify(Notification(Notifications.SYSTEM_MESSAGES_GROUP_ID, "Error", "Error: ${exception.message}", NotificationType.ERROR))
+
+                Messages.showMessageDialog(actionEvent!!.project, "Error: ${exception.message}",
+                        "Error", Messages.getErrorIcon())
+            }
         }
     }
 
@@ -196,6 +276,9 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
         }
     }
 
+    /**
+     * Default message collector.
+     */
     private class ErrorMessageCollector : MessageCollector {
         val errors = ArrayList<String>()
 
@@ -222,7 +305,7 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
             messageCollector: MessageCollector
     ): CompilerConfiguration {
         return CompilerConfiguration().apply {
-            put(CommonConfigurationKeys.MODULE_NAME, "LivePluginScript")
+            put(CommonConfigurationKeys.MODULE_NAME, "KeybindingsPlugin")
             put(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY, messageCollector)
 
             add(JVMConfigurationKeys.SCRIPT_DEFINITIONS, KotlinScriptDefinition(Reflection.createKotlinClass(KotlinScriptTemplate::class.java)))
