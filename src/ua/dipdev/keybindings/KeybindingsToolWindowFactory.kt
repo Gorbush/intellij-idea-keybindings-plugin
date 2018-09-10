@@ -1,8 +1,5 @@
 package ua.dipdev.keybindings
 
-import com.intellij.execution.filters.TextConsoleBuilderFactory
-import com.intellij.execution.ui.ConsoleView
-import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.icons.AllIcons
 import com.intellij.ide.plugins.PluginManager
 import com.intellij.ide.ui.laf.IntelliJLaf
@@ -57,8 +54,6 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
     private var kotlinVirtualFile: LightVirtualFile? = null
 
     private var mainPanel: JPanel? = null
-
-    private var consoleView: ConsoleView? = null
 
     private var actionGroup: DefaultActionGroup? = null
 
@@ -115,32 +110,7 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
         mainPanel!!.add(actionToolbar.component, BorderLayout.NORTH)
         mainPanel!!.add(fileEditorComponent, BorderLayout.CENTER)
 
-        val textConsoleBuilderFactory = TextConsoleBuilderFactory.getInstance()
-
-        consoleView = textConsoleBuilderFactory.createBuilder(project).console
-
-        val consoleViewComponent = consoleView?.component
-
-        val testActionGroup = DefaultActionGroup()
-
-        val createConsoleActions = consoleView?.createConsoleActions()!!
-
-        for (anAction in createConsoleActions) {
-            testActionGroup.add(anAction)
-        }
-
-        val toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, testActionGroup, false);
-        toolbar.setTargetComponent(consoleViewComponent);
-
-        val consolePanel = JPanel(BorderLayout())
-        consolePanel.add(consoleViewComponent, BorderLayout.CENTER);
-        consolePanel.add(toolbar.component, BorderLayout.WEST);
-
-        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT, mainPanel, consolePanel)
-        splitPane.dividerLocation = 600
-        splitPane.dividerSize = 2
-
-        val content = contentManager.factory.createContent(splitPane, null, false)
+        val content = contentManager.factory.createContent(mainPanel, null, false)
 
         contentManager.addContent(content)
     }
@@ -227,12 +197,14 @@ class KeybindingsToolWindowFactory : ToolWindowFactory {
                 actionGroup!!.add(keybindingsAction!!)
 
                 actionManager.registerAction("KeybindingsPluginAction", keybindingsAction!!)
-            } catch (exception: Exception) {
-                consoleView?.print("Error: ${exception.message}", ConsoleViewContentType.ERROR_OUTPUT)
 
+                Notifications.Bus.notify(Notification(Notifications.SYSTEM_MESSAGES_GROUP_ID, "Information", "Action added.", NotificationType.INFORMATION))
+
+                Messages.showMessageDialog(actionEvent.project, "Action added.", "Information", Messages.getInformationIcon())
+            } catch (exception: Exception) {
                 Notifications.Bus.notify(Notification(Notifications.SYSTEM_MESSAGES_GROUP_ID, "Error", "Error: ${exception.message}", NotificationType.ERROR))
 
-                Messages.showMessageDialog(actionEvent!!.project, "Error: ${exception.message}",
+                Messages.showMessageDialog(actionEvent.project, "Error: ${exception.message}",
                         "Error", Messages.getErrorIcon())
             }
         }
